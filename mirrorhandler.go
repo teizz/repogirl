@@ -72,6 +72,8 @@ func mirrorsRequest(w http.ResponseWriter, r *http.Request) {
 	if len(release) < 1 || len(repo) < 1 {
 		warn("not enough parameters sent", "uri", r.RequestURI, "release", release, "repo", repo)
 		w.WriteHeader(http.StatusBadRequest)
+	} else if len(mirrors) < 1 {
+		w.WriteHeader(http.StatusNoContent)
 	} else {
 		if alias, ok := aliases[release]; ok {
 			release = alias

@@ -12,13 +12,16 @@ import (
 	"time"
 
 	"github.com/thoas/stats"
-	log15 "gopkg.in/inconshreveable/log15.v2"
+	"gopkg.in/inconshreveable/log15.v2"
 )
 
 var (
 	mirrors []string          // env REPO_MIRRORS="http://centos.mirror.triple-it.nl, http://mirror.dataone.nl/centos, http://mirrors.xtom.nl/centos"
 	aliases map[string]string // env RELEASE_ALIASES="7=7.6.1810, 6=6.9"
 	client  *http.Client
+
+	version   = "0000000"
+	buildtime = "0000000"
 )
 
 func init() {
@@ -32,7 +35,7 @@ func init() {
 
 	// parse repo mirrors from environment variable
 	if mirrorsenv, ok := os.LookupEnv("REPO_MIRRORS"); !ok {
-		fatal("no repository mirrors specified in REPO_MIRRORS environment variable")
+		warn("no repository mirrors specified in REPO_MIRRORS environment variable, replies will be status 204")
 	} else {
 		mirrors = strings.Split(mirrorsenv, ",")
 		for i, m := range mirrors {
@@ -105,6 +108,7 @@ func main() {
 		Handler: middleware.Handler(mux),
 	}
 
+	info("starting repogirl", "version", version, "buildtime", buildtime)
 	// start the server in the background and pass the channel for error handling
 	go func(srv *http.Server, err chan error) {
 		err <- srv.ListenAndServe()
