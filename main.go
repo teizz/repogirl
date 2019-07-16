@@ -93,7 +93,15 @@ func main() {
 	mux.HandleFunc("/", mirrorsRequest)
 
 	// requests for '/stats' should return relevant service stats
+	mux.HandleFunc("/health.html", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Header().Set("Content-Type", "text/plain")
+		w.Write([]byte("KEEPALIVE_OK\n"))
+	})
+
+	// requests for '/stats' should return relevant service stats
 	mux.HandleFunc("/stats", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
 		w.Header().Set("Content-Type", "application/json")
 		b, _ := json.Marshal(middleware.Data())
 		w.Write(b)
