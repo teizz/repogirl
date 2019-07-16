@@ -21,7 +21,8 @@ $(PACKAGE):
 
 depend:
 	@echo "### GO GET dependencies for $(PACKAGE)-$(VERSION)"
-	@go get -u
+	@go get -u github.com/thoas/stats
+	@go get -u gopkg.in/inconshreveable/log15.v2
 
 clean:
 	@echo "### DELETE binaries for $(PACKAGE)"
