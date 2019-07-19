@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -11,8 +12,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/thoas/stats"
-	"gopkg.in/inconshreveable/log15.v2"
 )
 
 var (
@@ -57,27 +58,36 @@ func init() {
 			aliases[p[0]] = p[1]
 		}
 	}
+}
 
+func makefields(ctx ...interface{}) (fields logrus.Fields) {
+	fields = make(logrus.Fields)
+	for i := 0; i < len(ctx); i += 2 {
+		fields[ctx[i].(string)] = ctx[i+1]
+	}
+	return
 }
 
 func fatal(msg string, ctx ...interface{}) {
-	log15.Crit(msg, ctx...)
+	logrus.WithFields(makefields(ctx)).Fatal(msg)
 	os.Exit(1)
 }
 
 func info(msg string, ctx ...interface{}) {
-	log15.Info(msg, ctx...)
+	logrus.WithFields(makefields(ctx)).Info(msg)
 }
 
 func warn(msg string, ctx ...interface{}) {
-	log15.Warn(msg, ctx...)
+	logrus.WithFields(makefields(ctx)).Warn(msg)
 }
 
 func debug(msg string, ctx ...interface{}) {
-	log15.Debug(msg, ctx...)
+	logrus.WithFields(makefields(ctx)).Debug(msg)
 }
 
 func main() {
+	// declare both regular and ssl capable http servers
+	var server, sslserver *http.Server
 
 	// trap signals to properly shutdown http server
 	signals := make(chan os.Signal, 1)
@@ -91,6 +101,12 @@ func main() {
 
 	// requests for '/' should be parsed as a mirrorlist request
 	mux.HandleFunc("/", mirrorsRequest)
+
+	// handling the favicon request prevents counting all the
+	// invalid requests, just reply StatusOK and 0 bytes in the body
+	mux.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
 
 	// requests for '/stats' should return relevant service stats
 	mux.HandleFunc("/health.html", func(w http.ResponseWriter, r *http.Request) {
@@ -107,13 +123,38 @@ func main() {
 		w.Write(b)
 	})
 
+	// if the working dir contains a directory called "pub", then happily serve
+	// files out of it.
+	if s, err := os.Stat("pub"); err == nil {
+		if s.IsDir() {
+			info("serving filesystem", "path", "/pub")
+			mux.Handle("/pub/", http.StripPrefix("/pub", http.FileServer(http.Dir("pub"))))
+		}
+	}
+
 	// create channel for when http server gets shutdown for any reason
 	shut := make(chan error)
 
 	// init http server
-	server := &http.Server{
+	server = &http.Server{
 		Addr:    ":8080",
 		Handler: middleware.Handler(mux),
+	}
+
+	if cert, err := tls.LoadX509KeyPair("cert.pem", "key.pem"); err != nil {
+		info("TLS keypair not loaded, HTTPS will not be available", "reason", err.Error())
+	} else {
+		logger := logrus.WithFields(logrus.Fields{
+			"component": "https server",
+		})
+		sslserver = &http.Server{
+			Addr:     ":8443",
+			Handler:  middleware.Handler(mux),
+			ErrorLog: log.New(logger.Writer(), "", 0),
+			TLSConfig: &tls.Config{
+				Certificates: []tls.Certificate{cert},
+			},
+		}
 	}
 
 	info("starting repogirl", "version", version, "buildtime", buildtime)
@@ -121,6 +162,14 @@ func main() {
 	go func(srv *http.Server, err chan error) {
 		err <- srv.ListenAndServe()
 	}(server, shut)
+
+	if sslserver != nil {
+		// start another the server in the background and pass the channel for error handling
+		// this one has TLS support
+		go func(srv *http.Server, err chan error) {
+			err <- srv.ListenAndServeTLS("", "")
+		}(sslserver, shut)
+	}
 
 	// while the http server is up and running
 	for running := true; running; {
@@ -138,7 +187,18 @@ func main() {
 			}
 		case err := <-shut:
 			if err != http.ErrServerClosed {
+				warn("http(s) server exited without proper shutdown", "error", err.Error())
+			}
+
+			// try to shoot the other server in the head
+			ctx, _ := context.WithTimeout(context.Background(), time.Second*5)
+			if err := server.Shutdown(ctx); err != nil {
 				warn("http server exited without proper shutdown", "error", err.Error())
+			}
+			if sslserver != nil {
+				if err := sslserver.Shutdown(ctx); err != nil {
+					warn("https server exited without proper shutdown", "error", err.Error())
+				}
 			}
 			running = false
 		}
