@@ -1,6 +1,3 @@
-GOOS=linux
-GOARCH=amd64
-
 MKFILE_PATH := $(abspath $(lastword $(MAKEFILE_LIST)))
 PACKAGE := $(notdir $(patsubst %/,%,$(dir $(MKFILE_PATH))))
 
@@ -17,12 +14,12 @@ all: $(PACKAGE)
 
 $(PACKAGE):
 	@echo "### GO BUILD binaries for $(PACKAGE)-$(VERSION)"
-	@env CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -a $(GCFLAGS) $(LDFLAGS) -a -o $(PACKAGE)
+	@env CGO_ENABLED=0 go build -a $(GCFLAGS) $(LDFLAGS) -a -o $(PACKAGE)
 
 depend:
 	@echo "### GO GET dependencies for $(PACKAGE)-$(VERSION)"
 	@go get -u github.com/thoas/stats
-	@go get -u gopkg.in/inconshreveable/log15.v2
+	@go get -u github.com/sirupsen/logrus
 
 clean:
 	@echo "### DELETE binaries for $(PACKAGE)"
@@ -31,4 +28,3 @@ clean:
 
 nothing:
 	@echo "Doing nothing (use 'all' target to build package)"
-
