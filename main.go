@@ -69,20 +69,20 @@ func makefields(ctx ...interface{}) (fields logrus.Fields) {
 }
 
 func fatal(msg string, ctx ...interface{}) {
-	logrus.WithFields(makefields(ctx)).Fatal(msg)
+	logrus.WithFields(makefields(ctx...)).Fatal(msg)
 	os.Exit(1)
 }
 
 func info(msg string, ctx ...interface{}) {
-	logrus.WithFields(makefields(ctx)).Info(msg)
+	logrus.WithFields(makefields(ctx...)).Info(msg)
 }
 
 func warn(msg string, ctx ...interface{}) {
-	logrus.WithFields(makefields(ctx)).Warn(msg)
+	logrus.WithFields(makefields(ctx...)).Warn(msg)
 }
 
 func debug(msg string, ctx ...interface{}) {
-	logrus.WithFields(makefields(ctx)).Debug(msg)
+	logrus.WithFields(makefields(ctx...)).Debug(msg)
 }
 
 func main() {
