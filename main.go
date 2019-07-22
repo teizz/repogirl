@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
-	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -12,7 +11,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/sirupsen/logrus"
 	"github.com/thoas/stats"
 )
 
@@ -40,7 +38,7 @@ func init() {
 	} else {
 		mirrors = strings.Split(mirrorsenv, ",")
 		for i, m := range mirrors {
-			mirrors[i] = strings.TrimSpace(m)
+			mirrors[i] = strings.TrimRight(strings.TrimSpace(m), "/")
 		}
 	}
 
@@ -60,31 +58,6 @@ func init() {
 	}
 }
 
-func makefields(ctx ...interface{}) (fields logrus.Fields) {
-	fields = make(logrus.Fields)
-	for i := 0; i < len(ctx); i += 2 {
-		fields[ctx[i].(string)] = ctx[i+1]
-	}
-	return
-}
-
-func fatal(msg string, ctx ...interface{}) {
-	logrus.WithFields(makefields(ctx...)).Fatal(msg)
-	os.Exit(1)
-}
-
-func info(msg string, ctx ...interface{}) {
-	logrus.WithFields(makefields(ctx...)).Info(msg)
-}
-
-func warn(msg string, ctx ...interface{}) {
-	logrus.WithFields(makefields(ctx...)).Warn(msg)
-}
-
-func debug(msg string, ctx ...interface{}) {
-	logrus.WithFields(makefields(ctx...)).Debug(msg)
-}
-
 func main() {
 	// declare both regular and ssl capable http servers
 	var server, sslserver *http.Server
@@ -102,6 +75,9 @@ func main() {
 	// requests for '/' should be parsed as a mirrorlist request
 	mux.HandleFunc("/", mirrorsRequest)
 
+	// requests for '/repodiff' should be parsed as a repodiff request
+	mux.HandleFunc("/repodiff", diffRequest)
+
 	// handling the favicon request prevents counting all the
 	// invalid requests, just reply StatusOK and 0 bytes in the body
 	mux.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
@@ -110,15 +86,15 @@ func main() {
 
 	// requests for '/stats' should return relevant service stats
 	mux.HandleFunc("/health.html", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
 		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("KEEPALIVE_OK\n"))
 	})
 
 	// requests for '/stats' should return relevant service stats
 	mux.HandleFunc("/stats", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
 		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
 		b, _ := json.Marshal(middleware.Data())
 		w.Write(b)
 	})
@@ -144,13 +120,10 @@ func main() {
 	if cert, err := tls.LoadX509KeyPair("cert.pem", "key.pem"); err != nil {
 		info("TLS keypair not loaded, HTTPS will not be available", "reason", err.Error())
 	} else {
-		logger := logrus.WithFields(logrus.Fields{
-			"component": "https server",
-		})
 		sslserver = &http.Server{
 			Addr:     ":8443",
 			Handler:  middleware.Handler(mux),
-			ErrorLog: log.New(logger.Writer(), "", 0),
+			ErrorLog: getcontextlogger("component", "https server"),
 			TLSConfig: &tls.Config{
 				Certificates: []tls.Certificate{cert},
 			},

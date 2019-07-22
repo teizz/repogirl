@@ -12,9 +12,9 @@ var (
 )
 
 type repomirror struct {
-	uri       string
 	valid     bool
 	lastcheck time.Time
+	latency   time.Duration
 }
 
 func checkMirror(uri string) (success bool) {
@@ -24,7 +24,7 @@ func checkMirror(uri string) (success bool) {
 	var m repomirror
 
 	if v, found := mirrorcache.Load(uri); !found {
-		m = repomirror{uri: uri}
+		m = repomirror{}
 	} else {
 		m = v.(repomirror)
 	}
@@ -39,13 +39,14 @@ func checkMirror(uri string) (success bool) {
 		ctx, _ := context.WithTimeout(context.Background(), time.Second*2)
 
 		// do not cache the request if for some reason a request could not be built
-		if req, err = http.NewRequest("GET", uri+"/repodata/", nil); err != nil {
+		if req, err = http.NewRequest("GET", uri+"/repodata/repomd.xml", nil); err != nil {
 			warn("unable to build http request", "uri", uri)
 			return
 		}
 
 		// if the client returns with an error (like invalid TLS certificates)
 		// then do cache that result.
+		t0 := time.Now()
 		if resp, err = client.Do(req.WithContext(ctx)); err != nil {
 			warn("http client returned an error", "uri", req.RequestURI, "error", err)
 			m.valid = false
@@ -55,6 +56,7 @@ func checkMirror(uri string) (success bool) {
 		} else {
 			// only in case of statuscode being okay should cache be positive
 			m.valid = true
+			m.latency = time.Since(t0)
 		}
 		m.lastcheck = time.Now()
 		mirrorcache.Store(uri, m)
