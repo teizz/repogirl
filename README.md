@@ -12,10 +12,11 @@ for example:
 env REPO_MIRRORS=" \
     http://centos.mirror.triple-it.nl, \
     http://mirror.dataone.nl/centos, \
-    http://mirrors.xtom.nl/centos" \
+    http://mirrors.xtom.nl/centos, \
+    http://vault.centos.org" \
   RELEASE_ALIASES=" \
     stable=7.6.1810, \
-    stable6=6.9" \
+    previous=7.5.1804" \
   ./repogirl
 ```
 
@@ -28,10 +29,11 @@ docker container run \
   -e REPO_MIRRORS=" \
        http://centos.mirror.triple-it.nl, \
        http://mirror.dataone.nl/centos, \
-       http://mirrors.xtom.nl/centos" \
+       http://mirrors.xtom.nl/centos, \
+       http://vault.centos.org" \
   -e RELEASE_ALIASES=" \
        stable=7.6.1810, \
-       stable6=6.9" \
+       previous=7.5.1804" \
   -p 8080:8080 \
   repogirl
 ```
