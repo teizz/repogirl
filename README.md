@@ -10,6 +10,7 @@ Mirrorlist that actively checks mirrors before serving them back. Written in Go.
 * Opportunistic HTTPS support if a `key.pem` and `cert.pem` are found.
 * Opportunistic serving of files from a directory named `pub` if found.
 * On-demand repo diffs between 2 releases (possibly from different mirrors)
+* Built-in server stats served from `/stats` in JSON format.
 * Possible to build into a single binary (+CA-certs) container.
 
 
