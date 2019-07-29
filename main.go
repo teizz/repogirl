@@ -24,14 +24,6 @@ var (
 )
 
 func init() {
-	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: false,
-		},
-		DisableCompression: false,
-	}
-	client = &http.Client{Transport: tr}
-
 	// parse repo mirrors from environment variable
 	if mirrorsenv, ok := os.LookupEnv("REPO_MIRRORS"); !ok {
 		warn("no repository mirrors specified in REPO_MIRRORS environment variable, replies will be status 204")
@@ -56,6 +48,29 @@ func init() {
 			aliases[p[0]] = p[1]
 		}
 	}
+
+	var insecureSkipVerify bool
+	if val, set := os.LookupEnv("INSECURE_SKIP_VERIFY"); set {
+		switch strings.ToLower(val) {
+		case "0", "no", "false":
+			// even if INSECURE_SKIP_VERIFY is set, but the value is any of
+			// 0, no, or false, then still do not disable verification.
+			insecureSkipVerify = false
+		default:
+			// in all other cases the value is set to something that can
+			// be interpreted as "enable" the verification-skipping.
+			warn("certificate verification of mirrors with TLS support is disabled")
+			insecureSkipVerify = true
+		}
+	}
+
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: insecureSkipVerify,
+		},
+		DisableCompression: false,
+	}
+	client = &http.Client{Transport: tr}
 }
 
 func main() {
