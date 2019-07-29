@@ -2,6 +2,17 @@
 Mirrorlist that actively checks mirrors before serving them back. Written in Go.
 
 
+# Features
+* Config via environment variables:
+    * Quick check of uri's in `REPO_MIRRORS` for an existing release of a requested repo before serving.
+    * On-the-fly aliasing of releases to easy to remember names using `RELEASE_ALIASES`.
+    * Disable checking of mirror TLS certificates by setting `INSECURE_SKIP_VERIFY=1`.
+* Opportunistic HTTPS support if a `key.pem` and `cert.pem` are found.
+* Opportunistic serving of files from a directory named `pub` if found.
+* On-demand repo diffs between 2 releases (possibly from different mirrors)
+* Possible to build into a single binary (+CA-certs) container.
+
+
 # Running after building
 
 * Set environment variables a list of mirrors you assume will be up (comma separated).
@@ -22,7 +33,9 @@ env REPO_MIRRORS=" \
 
 
 # Running in a container
-Assuming you've built the container image with the name repogirl, starting it by hand with the proper environment variables looks like this:
+Pulling the container image from [mattijs/repogirl](https://cloud.docker.com/repository/docker/mattijs/repogirl),
+starting it by hand with the proper environment variables looks like this (note how
+it will find `stable` on any of the current mirrors and `previous` on vault):
 ```
 docker container run \
   --rm \
@@ -38,10 +51,17 @@ docker container run \
   repogirl
 ```
 
+# Disable TLS verification
+Should mirrors be serving repos over HTTPS but with a certificate that cannot be
+verified by the default CA chain, then it is possible to disable this
+verification.
+
+Setting the environment variable `INSECURE_SKIP_VERIFY=1` disables TLS verification.
 
 # Enable TLS
-If a `cert.pem` and `key.pem` file are present in the working directory (or bound in / of the container), repogirl will try to parse them and
-if successful an extra HTTPS server will be started on port 8443 which supports TLS transport.
+If a `cert.pem` and `key.pem` file are present in the working directory (or
+bound in `/` of the container), repogirl will try to parse them and if successful
+an extra HTTPS server will be started on port 8443 which supports TLS transport.
 
 ## Example
 ```
@@ -58,9 +78,11 @@ docker container run \
   repogirl
 ```
 
+
 # Serving files
-In case repogirl should double as an actual mirror, having a directory called `pub` present in the working directory will enable a fileserver
-backend. All files and directories from `pub` (and only pub) will be served over HTTP (and if enabled over HTTPS).
+In case repogirl should double as an actual mirror, having a directory called `pub`
+present in the working directory will enable a fileserver backend. All files and
+directories from `pub` (and only pub) will be served over HTTP (and if enabled over HTTPS).
 
 ## Example
 ```
@@ -75,6 +97,8 @@ docker container run \
   -v $PWD/pub:/pub
   repogirl
 ```
+
+
 # Use
 
 ## Requesting a mirrorlist
@@ -86,7 +110,7 @@ http://mirror.dataone.nl/centos/7/os/x86_64
 http://mirrors.xtom.nl/centos/7/os/x86_64
 ```
 
-Of the 3 mirrors in this example, only one supports HTTPS. If all of them are specified having an 'https://' prefix in the REPO_MIRRORS variable, only the one actually supporting that is returned:
+Of the 3 mirrors in this example, only one supports HTTPS. If all of them are specified having an 'https://' prefix in the `REPO_MIRRORS` variable, only the one actually supporting that is returned:
 ```
 ~$ curl -L 'http://localhost:8080/?repo=os&release=7&arch=x86_64'
 https://mirrors.xtom.nl/centos/7/os/x86_64
@@ -116,7 +140,9 @@ removed:
 	...
 ```
 
+
 # Gotcha's
 
-* Not setting any variables will cause repogirl to return 204's, there will be a warning about this
-* Depending or the mirror's repo topology, some might need an additional 'arch' parameter
+* Not setting any mirror variables will cause repogirl to return 204's when requesting
+  a mirrorlist. There will be a warning about this.
+* Depending or the mirror's repo topology, some might need an additional 'arch' parameter.
