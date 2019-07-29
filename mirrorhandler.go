@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -67,6 +68,14 @@ func checkMirror(uri string) (success bool) {
 }
 
 func mirrorsRequest(w http.ResponseWriter, r *http.Request) {
+	// short here if the uri requested was not "/". mirrorlists requests should
+	// only have GET parameters.
+	if !strings.HasPrefix(r.RequestURI, "/?") {
+		info("invalid uri", "client", r.RemoteAddr, "uri", r.RequestURI)
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+
 	release := r.URL.Query().Get("release")
 	repo := r.URL.Query().Get("repo")
 	arch := r.URL.Query().Get("arch")
