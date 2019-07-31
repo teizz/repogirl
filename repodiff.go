@@ -1,9 +1,9 @@
 package main
 
 import (
-	"bufio"
 	"compress/gzip"
 	"encoding/xml"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"sort"
@@ -115,31 +115,41 @@ func fetchFileLists(uri string) (result map[pkgshort]pkgvers) {
 	pkgsmd := &pkgmd{}
 	for _, d := range rmd.Data {
 		if d.Type == "primary" {
-			if resp, err := client.Get(uri + "/" + strings.TrimLeft(d.Location.Href, "/")); err != nil {
-				fatal("unable to fetch filelist", "uri", uri, "err", err.Error())
-			} else {
-				body := bufio.NewReaderSize(resp.Body, 16*1024*1024)
-				if respzip, err := gzip.NewReader(body); err != nil {
-					fatal("unable to read gzip", "err", err.Error())
-				} else if data, err := ioutil.ReadAll(respzip); err != nil {
-					fatal("unable to read filelist", "err", err.Error())
-				} else {
-					xml.Unmarshal(data, &pkgsmd)
-					for _, p := range pkgsmd.Package {
-						entry := pkgshort{name: p.Name, arch: p.Arch}
-						if first, dup := result[entry]; dup {
-							if p.Time.File > first.time {
-								debug("superceded package information", "package", p.Name, "version-1", first.ver+"-"+first.rel, "version-2", p.Version.Ver+"-"+p.Version.Rel, "time-1", first.time, "time-2", p.Time.File)
-								result[entry] = pkgvers{ver: p.Version.Ver, rel: p.Version.Rel, time: p.Time.File}
-							} else {
-								debug("older package information", "package", p.Name, "version-1", first.ver+"-"+first.rel, "version-2", p.Version.Ver+"-"+p.Version.Rel, "time-1", first.time, "time-2", p.Time.File)
-							}
-						} else {
-							result[entry] = pkgvers{ver: p.Version.Ver, rel: p.Version.Rel, time: p.Time.File}
-						}
+			var err error
+			// fetch the primary data from the repo
+			var resp *http.Response
+			if resp, err = client.Get(uri + "/" + strings.TrimLeft(d.Location.Href, "/")); err != nil {
+				warn("unable to fetch filelist", "uri", uri, "err", err.Error())
+				return
+			}
+
+			// tie the gzipped data to a gzip.Reader
+			var respzip io.Reader
+			if respzip, err = gzip.NewReader(resp.Body); err != nil {
+				warn("unable to read gzip", "err", err.Error())
+				return
+			}
+
+			// finally unzip the data into memory
+			var data []byte
+			if data, err = ioutil.ReadAll(respzip); err != nil {
+				warn("unable to read filelist", "err", err.Error())
+				return
+			}
+
+			xml.Unmarshal(data, &pkgsmd)
+			for _, p := range pkgsmd.Package {
+				entry := pkgshort{name: p.Name, arch: p.Arch}
+				if first, dup := result[entry]; dup {
+					if p.Time.Build > first.time {
+						// superceded package information found, so update
+						result[entry] = pkgvers{ver: p.Version.Ver, rel: p.Version.Rel, time: p.Time.Build}
 					}
+				} else {
+					result[entry] = pkgvers{ver: p.Version.Ver, rel: p.Version.Rel, time: p.Time.Build}
 				}
 			}
+
 		}
 	}
 	return
@@ -234,9 +244,9 @@ func diffRequest(w http.ResponseWriter, r *http.Request) {
 					"client", r.RemoteAddr,
 					"repo", repo,
 					"old", r.URL.Query().Get("old"),
-					"alias", releaseold,
+					"aliasold", releaseold,
 					"new", r.URL.Query().Get("new"),
-					"alias", releasenew,
+					"aliasnew", releasenew,
 				)
 				diff = repodiff{lastcheck: time.Now()}
 				diff.added, diff.changed, diff.removed = mirrordiff(mirrorsold[0], mirrorsnew[0])
