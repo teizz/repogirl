@@ -100,7 +100,7 @@ type repodiff struct {
 
 func fetchFileLists(uri string) (result map[pkgshort]pkgvers) {
 	rmd := &repomd{}
-	if resp, err := http.Get(uri + "/repodata/repomd.xml"); err != nil {
+	if resp, err := client.Get(uri + "/repodata/repomd.xml"); err != nil {
 		fatal("unable to fetch repomd.xml", "uri", uri, "err", err.Error())
 	} else {
 		if data, _ := ioutil.ReadAll(resp.Body); err != nil {
@@ -115,7 +115,7 @@ func fetchFileLists(uri string) (result map[pkgshort]pkgvers) {
 	pkgsmd := &pkgmd{}
 	for _, d := range rmd.Data {
 		if d.Type == "primary" {
-			if resp, err := http.Get(uri + "/" + strings.TrimLeft(d.Location.Href, "/")); err != nil {
+			if resp, err := client.Get(uri + "/" + strings.TrimLeft(d.Location.Href, "/")); err != nil {
 				fatal("unable to fetch filelist", "uri", uri, "err", err.Error())
 			} else {
 				body := bufio.NewReaderSize(resp.Body, 16*1024*1024)
