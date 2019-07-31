@@ -37,7 +37,7 @@ func init() {
 	// parse release aliases from environment variable
 	aliases = make(map[string]string)
 	if aliasesenv, ok := os.LookupEnv("RELEASE_ALIASES"); !ok {
-		warn("no release aliases specified in RELEASE_ALIASES environment variable")
+		info("no release aliases specified in RELEASE_ALIASES environment variable, doing pass-through release names")
 	} else {
 		for _, a := range strings.Split(aliasesenv, ",") {
 			a = strings.TrimSpace(a)
