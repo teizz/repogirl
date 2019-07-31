@@ -66,13 +66,13 @@ type pkgmd struct {
 		Packager    string `xml:"packager"`
 		URL         string `xml:"url"`
 		Time        struct {
-			File  string `xml:"file,attr"`
-			Build string `xml:"build,attr"`
+			File  int `xml:"file,attr"`
+			Build int `xml:"build,attr"`
 		} `xml:"time"`
 		Size struct {
-			Package   string `xml:"package,attr"`
-			Installed string `xml:"installed,attr"`
-			Archive   string `xml:"archive,attr"`
+			Package   int `xml:"package,attr"`
+			Installed int `xml:"installed,attr"`
+			Archive   int `xml:"archive,attr"`
 		} `xml:"size"`
 		Location struct {
 			Href string `xml:"href,attr"`
@@ -85,6 +85,12 @@ type pkgshort struct {
 	arch string
 }
 
+type pkgvers struct {
+	ver  string
+	rel  string
+	time int
+}
+
 type repodiff struct {
 	lastcheck time.Time
 	added     []string
@@ -92,7 +98,7 @@ type repodiff struct {
 	removed   []string
 }
 
-func fetchFileLists(uri string) (result map[pkgshort]string) {
+func fetchFileLists(uri string) (result map[pkgshort]pkgvers) {
 	rmd := &repomd{}
 	if resp, err := http.Get(uri + "/repodata/repomd.xml"); err != nil {
 		fatal("unable to fetch repomd.xml", "uri", uri, "err", err.Error())
@@ -104,7 +110,7 @@ func fetchFileLists(uri string) (result map[pkgshort]string) {
 		}
 	}
 
-	result = make(map[pkgshort]string)
+	result = make(map[pkgshort]pkgvers)
 
 	pkgsmd := &pkgmd{}
 	for _, d := range rmd.Data {
@@ -121,12 +127,15 @@ func fetchFileLists(uri string) (result map[pkgshort]string) {
 					xml.Unmarshal(data, &pkgsmd)
 					for _, p := range pkgsmd.Package {
 						entry := pkgshort{name: p.Name, arch: p.Arch}
-						if fp, found := result[entry]; found {
-							first := p.Name + "-" + fp + "." + p.Arch
-							second := p.Name + "-" + p.Version.Ver + "-" + p.Version.Rel + "." + p.Arch
-							debug("duplicate package information", "first", first, "second", second)
+						if first, dup := result[entry]; dup {
+							if p.Time.File > first.time {
+								debug("superceded package information", "package", p.Name, "version-1", first.ver+"-"+first.rel, "version-2", p.Version.Ver+"-"+p.Version.Rel, "time-1", first.time, "time-2", p.Time.File)
+								result[entry] = pkgvers{ver: p.Version.Ver, rel: p.Version.Rel, time: p.Time.File}
+							} else {
+								debug("older package information", "package", p.Name, "version-1", first.ver+"-"+first.rel, "version-2", p.Version.Ver+"-"+p.Version.Rel, "time-1", first.time, "time-2", p.Time.File)
+							}
 						} else {
-							result[entry] = p.Version.Ver + "-" + p.Version.Rel
+							result[entry] = pkgvers{ver: p.Version.Ver, rel: p.Version.Rel, time: p.Time.File}
 						}
 					}
 				}
@@ -141,10 +150,10 @@ func mirrordiff(releaseold, releasenew string) (added, changed, removed []string
 	pkgnew := fetchFileLists(releasenew)
 
 	changed = make([]string, 0)
-	for p, vers := range pkgnew {
-		if _, found := pkgold[p]; found {
-			if pkgold[p] != vers {
-				changed = append(changed, p.name+"-"+pkgold[p]+"."+p.arch+" -> "+p.name+"-"+vers+"."+p.arch)
+	for p, newvers := range pkgnew {
+		if oldvers, found := pkgold[p]; found {
+			if oldvers != newvers {
+				changed = append(changed, p.name+"-"+oldvers.ver+"-"+oldvers.rel+"."+p.arch+" -> "+p.name+"-"+newvers.ver+"-"+newvers.rel+"."+p.arch)
 			}
 			delete(pkgnew, p)
 			delete(pkgold, p)
@@ -152,13 +161,13 @@ func mirrordiff(releaseold, releasenew string) (added, changed, removed []string
 	}
 
 	added = make([]string, 0)
-	for p, vers := range pkgnew {
-		added = append(added, p.name+"-"+vers+"."+p.arch)
+	for p, newvers := range pkgnew {
+		added = append(added, p.name+"-"+newvers.ver+"-"+newvers.rel+"."+p.arch)
 	}
 
 	removed = make([]string, 0)
-	for p, vers := range pkgold {
-		removed = append(removed, p.name+"-"+vers+"."+p.arch)
+	for p, oldvers := range pkgold {
+		removed = append(removed, p.name+"-"+oldvers.ver+"-"+oldvers.rel+"."+p.arch)
 	}
 
 	sort.Strings(added)
@@ -189,7 +198,7 @@ func diffRequest(w http.ResponseWriter, r *http.Request) {
 		}
 
 		var diff repodiff
-		if tdiff, found := diffcache.Load(releaseold + releasenew + arch); found {
+		if tdiff, found := diffcache.Load(releaseold + releasenew + repo + arch); found {
 			diff = tdiff.(repodiff)
 		} else {
 			for _, mirror := range mirrors {
@@ -231,7 +240,7 @@ func diffRequest(w http.ResponseWriter, r *http.Request) {
 				)
 				diff = repodiff{lastcheck: time.Now()}
 				diff.added, diff.changed, diff.removed = mirrordiff(mirrorsold[0], mirrorsnew[0])
-				diffcache.Store(releaseold+releasenew+arch, diff)
+				diffcache.Store(releaseold+releasenew+repo+arch, diff)
 			}
 		}
 
