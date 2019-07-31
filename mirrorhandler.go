@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -93,9 +94,9 @@ func mirrorsRequest(w http.ResponseWriter, r *http.Request) {
 		var resp string
 		var count int
 		for _, mirror := range mirrors {
-			uri := mirror + "/" + release + "/" + repo
+			uri := mirror + "/" + release + "/" + repo + "/"
 			if len(arch) > 0 {
-				uri += "/" + arch
+				uri += arch + "/"
 			}
 			if checkMirror(uri) {
 				resp += uri + "\n"
@@ -107,9 +108,10 @@ func mirrorsRequest(w http.ResponseWriter, r *http.Request) {
 
 		if count > 0 {
 			debug("sending mirrors", "client", r.RemoteAddr, "up", count, "repo", repo, "release", r.URL.Query().Get("release"), "alias", release)
-			w.WriteHeader(http.StatusOK)
 			w.Header().Set("Content-Type", "text/plain")
 			w.Header().Set("Cache-Control", "max-age=3600")
+			w.Header().Set("X-Mirrors-Found", strconv.Itoa(count)+"/"+strconv.Itoa(len(mirrors)))
+			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(resp))
 		} else {
 			warn("no mirrors sent", "client", r.RemoteAddr, "repo", repo, "release", r.URL.Query().Get("release"), "alias", release)
