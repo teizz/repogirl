@@ -93,6 +93,9 @@ func main() {
 	// requests for '/repodiff' should be parsed as a repodiff request
 	mux.HandleFunc("/repodiff", diffRequest)
 
+	// requests for '/repohealth' should be parsed as a repohealth request
+	mux.HandleFunc("/repohealth", healthRequest)
+
 	// handling the favicon request prevents counting all the
 	// invalid requests, just reply StatusOK and 0 bytes in the body
 	mux.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {

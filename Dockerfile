@@ -10,5 +10,5 @@ FROM scratch
 COPY --from=builder /go/src/github.com/teizz/repogirl/repogirl /repogirl
 COPY --from=builder /etc/ssl/certs /etc/ssl/certs
 
-EXPOSE 8080
+EXPOSE 8080 8443
 CMD ["/repogirl"]
