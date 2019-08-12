@@ -39,6 +39,7 @@ func checkHealth(uri string) (failed []string, err error) {
 				err = fmt.Errorf("unable to read primary.xml.gz (%s)", err.Error())
 				return
 			}
+			defer resp.Body.Close()
 
 			// finally unzip the data into memory
 			var data []byte

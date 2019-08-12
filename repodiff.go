@@ -61,11 +61,11 @@ type pkgmd struct {
 			Type  string `xml:"type,attr"`
 			Pkgid string `xml:"pkgid,attr"`
 		} `xml:"checksum"`
-		Summary     string `xml:"summary"`
-		Description string `xml:"description"`
-		Packager    string `xml:"packager"`
-		URL         string `xml:"url"`
-		Time        struct {
+		// Summary     string `xml:"summary"`
+		// Description string `xml:"description"`
+		// Packager    string `xml:"packager"`
+		// URL         string `xml:"url"`
+		Time struct {
 			File  int `xml:"file,attr"`
 			Build int `xml:"build,attr"`
 		} `xml:"time"`
@@ -129,6 +129,7 @@ func fetchFileLists(uri string) (result map[pkgshort]pkgvers) {
 				warn("unable to read gzip", "err", err.Error())
 				return
 			}
+			defer resp.Body.Close()
 
 			// finally unzip the data into memory
 			var data []byte
@@ -149,7 +150,6 @@ func fetchFileLists(uri string) (result map[pkgshort]pkgvers) {
 					result[entry] = pkgvers{ver: p.Version.Ver, rel: p.Version.Rel, time: p.Time.Build}
 				}
 			}
-
 		}
 	}
 	return
