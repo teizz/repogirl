@@ -162,6 +162,8 @@ func main() {
 		}(sslserver, shut)
 	}
 
+	ticker := time.NewTicker(time.Second * 10)
+
 	// while the http server is up and running
 	for running := true; running; {
 		select {
@@ -192,6 +194,8 @@ func main() {
 				}
 			}
 			running = false
+		case <-ticker.C:
+			client.CloseIdleConnections()
 		}
 	}
 }

@@ -5,25 +5,26 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
 func checkHealth(uri string) (failed []string, err error) {
-	rmd := &repomd{}
 	var resp *http.Response
 	if resp, err = client.Get(uri + "/repodata/repomd.xml"); err != nil {
-		fatal("unable to fetch repomd.xml", "uri", uri, "err", err.Error())
-	} else {
-		if data, _ := ioutil.ReadAll(resp.Body); err != nil {
-			fatal("unable to decode xml", "err", err.Error())
-		} else {
-			xml.Unmarshal(data, &rmd)
-		}
+		err = fmt.Errorf("unable to fetch repomd.xml (%s)", err.Error())
+		return
+	}
+	defer resp.Body.Close()
+
+	var rmd *repomd
+	if err = xml.NewDecoder(resp.Body).Decode(&rmd); err != nil {
+		err = fmt.Errorf("unable to read repomd.xml (%s)", err.Error())
+		return
 	}
 
-	pkgsmd := &pkgmd{}
+	var c, f int
 	for _, d := range rmd.Data {
 		if d.Type == "primary" {
 			// fetch the primary data from the repo
@@ -32,29 +33,34 @@ func checkHealth(uri string) (failed []string, err error) {
 				err = fmt.Errorf("unable to fetch filelist (%s)", err.Error())
 				return
 			}
+			defer resp.Body.Close()
 
 			// tie the gzipped data to a gzip.Reader
 			var respzip io.Reader
 			if respzip, err = gzip.NewReader(resp.Body); err != nil {
-				err = fmt.Errorf("unable to read primary.xml.gz (%s)", err.Error())
+				err = fmt.Errorf("unable to decompress primary.xml.gz (%s)", err.Error())
 				return
 			}
-			defer resp.Body.Close()
 
-			// finally unzip the data into memory
-			var data []byte
-			if data, err = ioutil.ReadAll(respzip); err != nil {
+			var pkgsmd *pkgmd
+			if err = xml.NewDecoder(respzip).Decode(&pkgsmd); err != nil {
 				err = fmt.Errorf("unable to read filelist (%s)", err.Error())
 				return
 			}
 
-			xml.Unmarshal(data, &pkgsmd)
 			for _, p := range pkgsmd.Package {
+				c++
 				if err = verifyContentSize(uri+"/"+p.Location.Href, p.Size.Package); err != nil {
 					failed = append(failed, p.Location.Href+" "+err.Error())
+					f++
 				}
 			}
 		}
+	}
+	debug("packages checked", "uri", uri, "total", c, "failed", f)
+
+	if c < 1 {
+		err = fmt.Errorf("no packages checked for %s", uri)
 	}
 	return
 }
@@ -86,10 +92,6 @@ func healthRequest(w http.ResponseWriter, r *http.Request) {
 			release = alias
 		}
 
-		checkGood := []string{}
-		checkFail := []string{}
-		checkMiss := []string{}
-
 		for _, mirror := range mirrors {
 			uri := mirror + "/" + release + "/" + repo
 			if len(arch) > 0 {
@@ -100,28 +102,14 @@ func healthRequest(w http.ResponseWriter, r *http.Request) {
 			var err error
 			if failed, err = checkHealth(uri); err != nil {
 				warn("unable to check health", "mirror", mirror, "release", release, "repo", repo, "err", err.Error())
-				checkMiss = append(checkMiss, fmt.Sprintf("%s NOT CHECKED", mirror))
-			}
-
-			if len(failed) > 0 {
+				w.Write([]byte(uri + " NOT CHECKED\n"))
+			} else if len(failed) > 0 {
 				warn("some packages failed check", "mirror", mirror, "release", release, "repo", repo, "failed", len(failed))
-				checkFail = append(checkFail, fmt.Sprintf("%s %d PACKAGES FAILED", mirror, len(failed)))
-				return
+				w.Write([]byte(uri + " " + strconv.Itoa(len(failed)) + " FAILED PACKAGES\n"))
+			} else {
+				info("all packages verified successfully", "mirror", mirror, "release", release, "repo", repo)
+				w.Write([]byte(uri + " OK\n"))
 			}
-
-			info("all packages verified successfully", "mirror", mirror, "release", release, "repo", repo)
-			checkGood = append(checkGood, fmt.Sprintf("%s OK", mirror))
-		}
-
-		w.WriteHeader(http.StatusOK)
-		if len(checkMiss) > 0 {
-			w.Write([]byte(strings.Join(checkMiss, "\n") + "\n"))
-		}
-		if len(checkFail) > 0 {
-			w.Write([]byte(strings.Join(checkFail, "\n") + "\n"))
-		}
-		if len(checkGood) > 0 {
-			w.Write([]byte(strings.Join(checkGood, "\n") + "\n"))
 		}
 	}
 }

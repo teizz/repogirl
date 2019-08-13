@@ -3,8 +3,8 @@ package main
 import (
 	"compress/gzip"
 	"encoding/xml"
+	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"sort"
 	"strings"
@@ -99,46 +99,45 @@ type repodiff struct {
 }
 
 func fetchFileLists(uri string) (result map[pkgshort]pkgvers) {
-	rmd := &repomd{}
-	if resp, err := client.Get(uri + "/repodata/repomd.xml"); err != nil {
-		fatal("unable to fetch repomd.xml", "uri", uri, "err", err.Error())
-	} else {
-		if data, _ := ioutil.ReadAll(resp.Body); err != nil {
-			fatal("unable to decode xml", "err", err.Error())
-		} else {
-			xml.Unmarshal(data, &rmd)
-		}
+	var err error
+	var resp *http.Response
+	if resp, err = client.Get(uri + "/repodata/repomd.xml"); err != nil {
+		err = fmt.Errorf("unable to fetch repomd.xml (%s)", err.Error())
+		return
+	}
+	defer resp.Body.Close()
+
+	var rmd *repomd
+	if err = xml.NewDecoder(resp.Body).Decode(&rmd); err != nil {
+		err = fmt.Errorf("unable to read repomd.xml (%s)", err.Error())
+		return
 	}
 
 	result = make(map[pkgshort]pkgvers)
 
-	pkgsmd := &pkgmd{}
 	for _, d := range rmd.Data {
 		if d.Type == "primary" {
-			var err error
 			// fetch the primary data from the repo
 			var resp *http.Response
 			if resp, err = client.Get(uri + "/" + strings.TrimLeft(d.Location.Href, "/")); err != nil {
-				warn("unable to fetch filelist", "uri", uri, "err", err.Error())
-				return
-			}
-
-			// tie the gzipped data to a gzip.Reader
-			var respzip io.Reader
-			if respzip, err = gzip.NewReader(resp.Body); err != nil {
-				warn("unable to read gzip", "err", err.Error())
+				err = fmt.Errorf("unable to fetch filelist (%s)", err.Error())
 				return
 			}
 			defer resp.Body.Close()
 
-			// finally unzip the data into memory
-			var data []byte
-			if data, err = ioutil.ReadAll(respzip); err != nil {
-				warn("unable to read filelist", "err", err.Error())
+			// tie the gzipped data to a gzip.Reader
+			var respzip io.Reader
+			if respzip, err = gzip.NewReader(resp.Body); err != nil {
+				err = fmt.Errorf("unable to decompress primary.xml.gz (%s)", err.Error())
 				return
 			}
 
-			xml.Unmarshal(data, &pkgsmd)
+			var pkgsmd *pkgmd
+			if err = xml.NewDecoder(respzip).Decode(&pkgsmd); err != nil {
+				err = fmt.Errorf("unable to read filelist (%s)", err.Error())
+				return
+			}
+
 			for _, p := range pkgsmd.Package {
 				entry := pkgshort{name: p.Name, arch: p.Arch}
 				if first, dup := result[entry]; dup {
