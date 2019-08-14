@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync/atomic"
+	"time"
 )
 
 func checkHealth(uri string) (failed []string, err error) {
@@ -48,31 +50,62 @@ func checkHealth(uri string) (failed []string, err error) {
 				return
 			}
 
-			for _, p := range pkgsmd.Package {
-				c++
-				if err = verifyContentSize(uri+"/"+p.Location.Href, p.Size.Package); err != nil {
-					failed = append(failed, p.Location.Href+" "+err.Error())
-					f++
+			// keep track of how many routines are running
+			var running int64
+			// create a channel for failure feedback from routines
+			failchan := make(chan error)
+
+			// separate routine for processing all failures and for each message
+			// returned decrease the number of running routines by one
+			go func() {
+				for e := range failchan {
+					if e != nil {
+						failed = append(failed, e.Error())
+						f++
+					}
+					c++
+					atomic.AddInt64(&running, -1)
 				}
+			}()
+
+			// create a routine for each package
+			for _, p := range pkgsmd.Package {
+				// sleep for a little bit while there are enough routines running
+				for atomic.LoadInt64(&running) >= int64(fetchRoutines) {
+					time.Sleep(time.Millisecond)
+				}
+
+				// increase the number of running routine by one and kick off a
+				// new routine
+				atomic.AddInt64(&running, 1)
+				go func(u string, s int) {
+					if r, e := client.Head(u); e != nil {
+						e = fmt.Errorf("unable to fetch headers (%s)", e.Error())
+						failchan <- e
+					} else {
+						if r.ContentLength != int64(s) {
+							e = fmt.Errorf("%s: size %d != %d", u, r.ContentLength, s)
+							failchan <- e
+						} else {
+							failchan <- nil
+						}
+					}
+				}(uri+"/"+p.Location.Href, p.Size.Package)
 			}
+			// while there are still routines running, take a little nap
+			for atomic.LoadInt64(&running) > 0 {
+				time.Sleep(time.Millisecond)
+			}
+
+			// be nice and close then channel so the first routine can stop
+			// as well
+			close(failchan)
 		}
 	}
 	debug("packages checked", "uri", uri, "total", c, "failed", f)
 
 	if c < 1 {
 		err = fmt.Errorf("no packages checked for %s", uri)
-	}
-	return
-}
-
-func verifyContentSize(uri string, size int) (err error) {
-	var resp *http.Response
-	if resp, err = client.Head(uri); err != nil {
-		err = fmt.Errorf("unable to fetch headers (%s)", err.Error())
-	} else {
-		if resp.ContentLength != int64(size) {
-			err = fmt.Errorf("%d != %d", resp.ContentLength, size)
-		}
 	}
 	return
 }

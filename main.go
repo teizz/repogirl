@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -19,8 +20,9 @@ var (
 	aliases map[string]string // env RELEASE_ALIASES="7=7.6.1810, 6=6.9"
 	client  *http.Client
 
-	version   = "0000000"
-	buildtime = "0000000"
+	fetchRoutines = 16
+	version       = "0000000"
+	buildtime     = "0000000"
 )
 
 func init() {
@@ -61,6 +63,14 @@ func init() {
 			// be interpreted as "enable" the verification-skipping.
 			warn("certificate verification of mirrors with TLS support is disabled")
 			insecureSkipVerify = true
+		}
+	}
+
+	if val, set := os.LookupEnv("FETCH_ROUTINES"); set {
+		if v, err := strconv.Atoi(val); err != nil {
+			warn("unable to parse FETCH_ROUTINES", "got", val, "expect", "int")
+		} else {
+			fetchRoutines = v
 		}
 	}
 
