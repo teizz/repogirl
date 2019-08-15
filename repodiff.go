@@ -4,7 +4,6 @@ import (
 	"compress/gzip"
 	"encoding/xml"
 	"fmt"
-	"io"
 	"net/http"
 	"sort"
 	"strings"
@@ -98,65 +97,75 @@ type repodiff struct {
 	removed   []string
 }
 
-func fetchFileLists(uri string) (result map[pkgshort]pkgvers) {
-	var err error
-	var resp *http.Response
-	if resp, err = client.Get(uri + "/repodata/repomd.xml"); err != nil {
-		err = fmt.Errorf("unable to fetch repomd.xml (%s)", err.Error())
-		return
-	}
-	defer resp.Body.Close()
+func fetchFileLists(uri string) (resultchan chan map[pkgshort]pkgvers) {
+	resultchan = make(chan map[pkgshort]pkgvers)
+	go func(c chan map[pkgshort]pkgvers) {
+		defer close(c)
+		var err error
+		var resp *http.Response
+		if resp, err = client.Get(uri + "/repodata/repomd.xml"); err != nil {
+			err = fmt.Errorf("unable to fetch repomd.xml (%s)", err.Error())
+			return
+		}
+		defer resp.Body.Close()
 
-	var rmd *repomd
-	if err = xml.NewDecoder(resp.Body).Decode(&rmd); err != nil {
-		err = fmt.Errorf("unable to read repomd.xml (%s)", err.Error())
-		return
-	}
+		var rmd *repomd
+		if err = xml.NewDecoder(resp.Body).Decode(&rmd); err != nil {
+			err = fmt.Errorf("unable to read repomd.xml (%s)", err.Error())
+			return
+		}
 
-	result = make(map[pkgshort]pkgvers)
+		result := make(map[pkgshort]pkgvers)
 
-	for _, d := range rmd.Data {
-		if d.Type == "primary" {
-			// fetch the primary data from the repo
-			var resp *http.Response
-			if resp, err = client.Get(uri + "/" + strings.TrimLeft(d.Location.Href, "/")); err != nil {
-				err = fmt.Errorf("unable to fetch filelist (%s)", err.Error())
-				return
-			}
-			defer resp.Body.Close()
+		for _, d := range rmd.Data {
+			if d.Type == "primary" {
+				// fetch the primary data from the repo
+				var resp *http.Response
+				if resp, err = client.Get(uri + "/" + strings.TrimLeft(d.Location.Href, "/")); err != nil {
+					warn("unable to fetch filelist", "err", err.Error())
+					return
+				}
+				defer resp.Body.Close()
 
-			// tie the gzipped data to a gzip.Reader
-			var respzip io.Reader
-			if respzip, err = gzip.NewReader(resp.Body); err != nil {
-				err = fmt.Errorf("unable to decompress primary.xml.gz (%s)", err.Error())
-				return
-			}
+				// tie the gzipped data to a gzip.Reader
+				var respzip *gzip.Reader
+				if respzip, err = gzip.NewReader(resp.Body); err != nil {
+					warn("unable to decompress primary.xml.gz", "err", err.Error())
+					return
+				}
+				defer respzip.Close()
 
-			var pkgsmd *pkgmd
-			if err = xml.NewDecoder(respzip).Decode(&pkgsmd); err != nil {
-				err = fmt.Errorf("unable to read filelist (%s)", err.Error())
-				return
-			}
+				var pkgsmd *pkgmd
+				if err = xml.NewDecoder(respzip).Decode(&pkgsmd); err != nil {
+					warn("unable to read filelist from primary.xml", "err", err.Error())
+					return
+				}
 
-			for _, p := range pkgsmd.Package {
-				entry := pkgshort{name: p.Name, arch: p.Arch}
-				if first, dup := result[entry]; dup {
-					if p.Time.Build > first.time {
-						// superceded package information found, so update
+				for _, p := range pkgsmd.Package {
+					entry := pkgshort{name: p.Name, arch: p.Arch}
+					if first, dup := result[entry]; dup {
+						if p.Time.Build > first.time {
+							// superceded package information found, so update
+							result[entry] = pkgvers{ver: p.Version.Ver, rel: p.Version.Rel, time: p.Time.Build}
+						}
+					} else {
 						result[entry] = pkgvers{ver: p.Version.Ver, rel: p.Version.Rel, time: p.Time.Build}
 					}
-				} else {
-					result[entry] = pkgvers{ver: p.Version.Ver, rel: p.Version.Rel, time: p.Time.Build}
 				}
 			}
 		}
-	}
-	return
+		c <- result
+	}(resultchan)
+
+	return resultchan
 }
 
 func mirrordiff(releaseold, releasenew string) (added, changed, removed []string) {
-	pkgold := fetchFileLists(releaseold)
-	pkgnew := fetchFileLists(releasenew)
+	oldchan := fetchFileLists(releaseold)
+	newchan := fetchFileLists(releasenew)
+
+	pkgold := <-oldchan
+	pkgnew := <-newchan
 
 	changed = make([]string, 0)
 	for p, newvers := range pkgnew {
@@ -169,12 +178,12 @@ func mirrordiff(releaseold, releasenew string) (added, changed, removed []string
 		}
 	}
 
-	added = make([]string, 0)
+	added = make([]string, len(pkgnew))
 	for p, newvers := range pkgnew {
 		added = append(added, p.name+"-"+newvers.ver+"-"+newvers.rel+"."+p.arch)
 	}
 
-	removed = make([]string, 0)
+	removed = make([]string, len(pkgold))
 	for p, oldvers := range pkgold {
 		removed = append(removed, p.name+"-"+oldvers.ver+"-"+oldvers.rel+"."+p.arch)
 	}
@@ -247,7 +256,7 @@ func diffRequest(w http.ResponseWriter, r *http.Request) {
 					"new", r.URL.Query().Get("new"),
 					"aliasnew", releasenew,
 				)
-				diff = repodiff{lastcheck: time.Now()}
+				diff.lastcheck = time.Now()
 				diff.added, diff.changed, diff.removed = mirrordiff(mirrorsold[0], mirrorsnew[0])
 				diffcache.Store(releaseold+releasenew+repo+arch, diff)
 			}
@@ -259,14 +268,20 @@ func diffRequest(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("X-Content-Age", time.Since(diff.lastcheck).Round(time.Second).String())
 			w.WriteHeader(http.StatusOK)
 			if len(diff.added)+len(diff.changed)+len(diff.removed) > 0 {
-				w.Write([]byte("added:\n\t" + strings.Join(diff.added, "\n\t") + "\n"))
-				w.Write([]byte("changed:\n\t" + strings.Join(diff.changed, "\n\t") + "\n"))
-				w.Write([]byte("removed:\n\t" + strings.Join(diff.removed, "\n\t") + "\n"))
+				if len(diff.added) > 0 {
+					w.Write([]byte("+ " + strings.Join(diff.added, "\n+ ") + "\n"))
+				}
+				if len(diff.changed) > 0 {
+					w.Write([]byte("  " + strings.Join(diff.changed, "\n  ") + "\n"))
+				}
+				if len(diff.removed) > 0 {
+					w.Write([]byte("- " + strings.Join(diff.removed, "\n- ") + "\n"))
+				}
 			} else {
 				w.Write([]byte("no changes in packages\n"))
 			}
 		} else {
-			warn("not enough mirrors to diff packages",
+			warn("an error occurred diffing repos",
 				"client", r.RemoteAddr,
 				"repo", repo,
 				"old release", releaseold,

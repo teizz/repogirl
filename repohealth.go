@@ -4,7 +4,6 @@ import (
 	"compress/gzip"
 	"encoding/xml"
 	"fmt"
-	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -13,6 +12,8 @@ import (
 )
 
 func checkHealth(uri string) (failed []string, err error) {
+	debug("doing health check against packages in repository", "uri", uri)
+	t0 := time.Now()
 	var resp *http.Response
 	if resp, err = client.Get(uri + "/repodata/repomd.xml"); err != nil {
 		err = fmt.Errorf("unable to fetch repomd.xml (%s)", err.Error())
@@ -38,11 +39,12 @@ func checkHealth(uri string) (failed []string, err error) {
 			defer resp.Body.Close()
 
 			// tie the gzipped data to a gzip.Reader
-			var respzip io.Reader
+			var respzip *gzip.Reader
 			if respzip, err = gzip.NewReader(resp.Body); err != nil {
 				err = fmt.Errorf("unable to decompress primary.xml.gz (%s)", err.Error())
 				return
 			}
+			defer respzip.Close()
 
 			var pkgsmd *pkgmd
 			if err = xml.NewDecoder(respzip).Decode(&pkgsmd); err != nil {
@@ -81,11 +83,11 @@ func checkHealth(uri string) (failed []string, err error) {
 				atomic.AddInt64(&running, 1)
 				go func(u string, s int) {
 					if r, e := client.Head(u); e != nil {
-						e = fmt.Errorf("%s: unable to fetch headers (%s)", u, e.Error())
+						e = fmt.Errorf("unable to fetch headers (%s)", e.Error())
 						failchan <- e
 					} else {
 						if r.ContentLength != int64(s) {
-							e = fmt.Errorf("%s: size %d != %d", u, r.ContentLength, s)
+							e = fmt.Errorf("size mismatch for %s (size %d != %d)", u, r.ContentLength, s)
 							failchan <- e
 						} else {
 							failchan <- nil
@@ -103,7 +105,7 @@ func checkHealth(uri string) (failed []string, err error) {
 			close(failchan)
 		}
 	}
-	debug("packages checked", "uri", uri, "total", c, "failed", f)
+	debug("packages checked", "uri", uri, "total", c, "failed", f, "elapsed", time.Since(t0))
 
 	if c < 1 {
 		err = fmt.Errorf("no packages checked for %s", uri)
