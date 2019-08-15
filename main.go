@@ -74,6 +74,18 @@ func init() {
 		}
 	}
 
+	if val, set := os.LookupEnv("DEBUG"); set {
+		switch strings.ToLower(val) {
+		case "0", "no", "false":
+			// even if DEBUG is set, but the value is any of 0, no, or false,
+			// then still do not enable debug output.
+		default:
+			// in all other cases enable debugging output
+			enable_debugging()
+			debug("debugging is now enabled")
+		}
+	}
+
 	tr := &http.Transport{
 		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: insecureSkipVerify,

@@ -60,6 +60,7 @@ func checkHealth(uri string) (failed []string, err error) {
 			go func() {
 				for e := range failchan {
 					if e != nil {
+						debug("package verification failed", "err", e.Error())
 						failed = append(failed, e.Error())
 						f++
 					}
@@ -80,7 +81,7 @@ func checkHealth(uri string) (failed []string, err error) {
 				atomic.AddInt64(&running, 1)
 				go func(u string, s int) {
 					if r, e := client.Head(u); e != nil {
-						e = fmt.Errorf("unable to fetch headers (%s)", e.Error())
+						e = fmt.Errorf("%s: unable to fetch headers (%s)", u, e.Error())
 						failchan <- e
 					} else {
 						if r.ContentLength != int64(s) {

@@ -7,7 +7,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func init() {
+func enable_debugging() {
 	logrus.SetLevel(logrus.DebugLevel)
 }
 
