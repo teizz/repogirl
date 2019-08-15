@@ -178,12 +178,12 @@ func mirrordiff(releaseold, releasenew string) (added, changed, removed []string
 		}
 	}
 
-	added = make([]string, len(pkgnew))
+	added = make([]string, 0)
 	for p, newvers := range pkgnew {
 		added = append(added, p.name+"-"+newvers.ver+"-"+newvers.rel+"."+p.arch)
 	}
 
-	removed = make([]string, len(pkgold))
+	removed = make([]string, 0)
 	for p, oldvers := range pkgold {
 		removed = append(removed, p.name+"-"+oldvers.ver+"-"+oldvers.rel+"."+p.arch)
 	}
