@@ -60,6 +60,7 @@ func mirrorRepository(uri string) (failed []string, err error) {
 		atomic.AddInt64(&running, 1)
 		go func(u string, s int) {
 
+			tn := time.Now()
 			pathcomponents := strings.Split(u[strings.Index(u, "//")+1:], "/")
 			pkgname := pathcomponents[len(pathcomponents)-1]
 			pathcomponents = append([]string{"pub"}, pathcomponents[:len(pathcomponents)-1]...)
@@ -67,9 +68,11 @@ func mirrorRepository(uri string) (failed []string, err error) {
 
 			if fd, err := os.Stat(path.Join(pkgpath, pkgname)); err == nil {
 				if int64(s) == fd.Size() {
+					debug("repomirror", "status", "already present", "package", pkgname)
 					failchan <- nil
 					return
 				}
+				warn("repomirror", "status", "incorrect size", "package", pkgname)
 			}
 
 			if err := os.MkdirAll(pkgpath, 0755); err != nil {
@@ -94,6 +97,8 @@ func mirrorRepository(uri string) (failed []string, err error) {
 							err = fmt.Errorf("written size does not match expected size for %s", pkgname)
 							failchan <- err
 						} else {
+							speed := float64(s) / 1024 / time.Since(tn).Seconds()
+							debug("repomirror", "status", "downloaded", "package", pkgname, "size", fmt.Sprintf("%.2fKB", float64(s)/1024), "speed", fmt.Sprintf("%.2fKB/s", speed))
 							failchan <- nil
 						}
 					}
