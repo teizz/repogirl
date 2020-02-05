@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strconv"
@@ -27,10 +28,10 @@ var (
 
 func init() {
 	// parse repo mirrors from environment variable
-	if mirrorsenv, ok := os.LookupEnv("REPO_MIRRORS"); !ok {
+	if val, ok := os.LookupEnv("REPO_MIRRORS"); !ok {
 		warn("no repository mirrors specified in REPO_MIRRORS environment variable, replies will be status 204")
 	} else {
-		mirrors = strings.Split(mirrorsenv, ",")
+		mirrors = strings.Split(val, ",")
 		for i, m := range mirrors {
 			mirrors[i] = strings.TrimRight(strings.TrimSpace(m), "/")
 		}
@@ -38,31 +39,16 @@ func init() {
 
 	// parse release aliases from environment variable
 	aliases = make(map[string]string)
-	if aliasesenv, ok := os.LookupEnv("RELEASE_ALIASES"); !ok {
+	if val, ok := os.LookupEnv("RELEASE_ALIASES"); !ok {
 		info("no release aliases specified in RELEASE_ALIASES environment variable, doing pass-through release names")
 	} else {
-		for _, a := range strings.Split(aliasesenv, ",") {
+		for _, a := range strings.Split(val, ",") {
 			a = strings.TrimSpace(a)
 			p := strings.Split(a, "=")
 			if len(p) != 2 {
 				fatal("could not parse release alias", "failed", a)
 			}
 			aliases[p[0]] = p[1]
-		}
-	}
-
-	var insecureSkipVerify bool
-	if val, set := os.LookupEnv("INSECURE_SKIP_VERIFY"); set {
-		switch strings.ToLower(val) {
-		case "0", "no", "false":
-			// even if INSECURE_SKIP_VERIFY is set, but the value is any of
-			// 0, no, or false, then still do not disable verification.
-			insecureSkipVerify = false
-		default:
-			// in all other cases the value is set to something that can
-			// be interpreted as "enable" the verification-skipping.
-			warn("certificate verification of mirrors with TLS support is disabled")
-			insecureSkipVerify = true
 		}
 	}
 
@@ -86,13 +72,42 @@ func init() {
 		}
 	}
 
+	var insecureSkipVerify bool
+	if val, set := os.LookupEnv("INSECURE_SKIP_VERIFY"); set {
+		switch strings.ToLower(val) {
+		case "0", "no", "false":
+			// even if INSECURE_SKIP_VERIFY is set, but the value is any of
+			// 0, no, or false, then still do not disable verification.
+			insecureSkipVerify = false
+		default:
+			// in all other cases the value is set to something that can
+			// be interpreted as "enable" the verification-skipping.
+			warn("certificate verification of mirrors with TLS support is disabled")
+			insecureSkipVerify = true
+		}
+	}
+
 	tr := &http.Transport{
 		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: insecureSkipVerify,
 		},
 		DisableCompression: false,
 	}
+
+	if cert, err := tls.LoadX509KeyPair("client-cert.pem", "client-key.pem"); err == nil {
+		info("Found client-TLS keypair, HTTP requests will be authenticated")
+		tr.TLSClientConfig.Certificates = []tls.Certificate{cert}
+	}
+
+	if val, set := os.LookupEnv("HTTP_PROXY"); set {
+		if httpProxyURL, err := url.Parse(val); err == nil {
+			info("Found HTTP proxy declaration, HTTP requests be sent through proxy")
+			tr.Proxy = http.ProxyURL(httpProxyURL)
+		}
+	}
+
 	client = &http.Client{Transport: tr}
+
 }
 
 func main() {
@@ -117,6 +132,9 @@ func main() {
 
 	// requests for '/repohealth' should be parsed as a repohealth request
 	mux.HandleFunc("/repohealth", healthRequest)
+
+	// requests for '/repomirror' should be parsed as a repomirror request
+	mux.HandleFunc("/repomirror", mirrorRequest)
 
 	// handling the favicon request prevents counting all the
 	// invalid requests, just reply StatusOK and 0 bytes in the body

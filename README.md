@@ -34,7 +34,7 @@ env REPO_MIRRORS=" \
 
 
 # Running in a container
-Pulling the container image from [mattijs/repogirl](https://cloud.docker.com/repository/docker/mattijs/repogirl),
+Pulling the container image from [mattijs/repogirl](https://hub.docker.com/r/mattijs/repogirl),
 starting it by hand with the proper environment variables looks like this (note how
 it will find `stable` on any of the current mirrors and `previous` on vault):
 ```

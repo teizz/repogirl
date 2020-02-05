@@ -97,60 +97,68 @@ type repodiff struct {
 	removed   []string
 }
 
+func fetchPackageMetadata(uri string) (pkgsmd *pkgmd, err error) {
+	var resp *http.Response
+	if resp, err = client.Get(uri + "/repodata/repomd.xml"); err != nil {
+		err = fmt.Errorf("unable to fetch repomd.xml (%s)", err.Error())
+		return
+	}
+	defer resp.Body.Close()
+
+	var rmd *repomd
+	if err = xml.NewDecoder(resp.Body).Decode(&rmd); err != nil {
+		err = fmt.Errorf("unable to read repomd.xml (%s)", err.Error())
+		return
+	}
+
+	for _, d := range rmd.Data {
+		if d.Type == "primary" {
+			// fetch the primary data from the repo
+			var resp *http.Response
+			if resp, err = client.Get(uri + "/" + strings.TrimLeft(d.Location.Href, "/")); err != nil {
+				err = fmt.Errorf("unable to fetch filelist (%s)", err.Error())
+				return
+			}
+			defer resp.Body.Close()
+
+			// tie the gzipped data to a gzip.Reader
+			var respzip *gzip.Reader
+			if respzip, err = gzip.NewReader(resp.Body); err != nil {
+				err = fmt.Errorf("unable to decompress primary.xml.gz (%s)", err.Error())
+				return
+			}
+			defer respzip.Close()
+
+			if err = xml.NewDecoder(respzip).Decode(&pkgsmd); err != nil {
+				err = fmt.Errorf("unable to read filelist from primary.xml (%s)", err.Error())
+				return
+			}
+
+			return pkgsmd, err
+		}
+	}
+
+	err = fmt.Errorf("unable to find primary filelist in repomd.xml")
+	return
+}
+
 func fetchFileLists(uri string) (resultchan chan map[pkgshort]pkgvers) {
 	resultchan = make(chan map[pkgshort]pkgvers)
 	go func(c chan map[pkgshort]pkgvers) {
 		defer close(c)
-		var err error
-		var resp *http.Response
-		if resp, err = client.Get(uri + "/repodata/repomd.xml"); err != nil {
-			err = fmt.Errorf("unable to fetch repomd.xml (%s)", err.Error())
-			return
-		}
-		defer resp.Body.Close()
-
-		var rmd *repomd
-		if err = xml.NewDecoder(resp.Body).Decode(&rmd); err != nil {
-			err = fmt.Errorf("unable to read repomd.xml (%s)", err.Error())
-			return
-		}
-
 		result := make(map[pkgshort]pkgvers)
-
-		for _, d := range rmd.Data {
-			if d.Type == "primary" {
-				// fetch the primary data from the repo
-				var resp *http.Response
-				if resp, err = client.Get(uri + "/" + strings.TrimLeft(d.Location.Href, "/")); err != nil {
-					warn("unable to fetch filelist", "err", err.Error())
-					return
-				}
-				defer resp.Body.Close()
-
-				// tie the gzipped data to a gzip.Reader
-				var respzip *gzip.Reader
-				if respzip, err = gzip.NewReader(resp.Body); err != nil {
-					warn("unable to decompress primary.xml.gz", "err", err.Error())
-					return
-				}
-				defer respzip.Close()
-
-				var pkgsmd *pkgmd
-				if err = xml.NewDecoder(respzip).Decode(&pkgsmd); err != nil {
-					warn("unable to read filelist from primary.xml", "err", err.Error())
-					return
-				}
-
-				for _, p := range pkgsmd.Package {
-					entry := pkgshort{name: p.Name, arch: p.Arch}
-					if first, dup := result[entry]; dup {
-						if p.Time.Build > first.time {
-							// superceded package information found, so update
-							result[entry] = pkgvers{ver: p.Version.Ver, rel: p.Version.Rel, time: p.Time.Build}
-						}
-					} else {
+		if pkgsmd, err := fetchPackageMetadata(uri); err != nil {
+			warn("error while fetching filelists", "err", err.Error())
+		} else {
+			for _, p := range pkgsmd.Package {
+				entry := pkgshort{name: p.Name, arch: p.Arch}
+				if first, dup := result[entry]; dup {
+					if p.Time.Build > first.time {
+						// superceded package information found, so update
 						result[entry] = pkgvers{ver: p.Version.Ver, rel: p.Version.Rel, time: p.Time.Build}
 					}
+				} else {
+					result[entry] = pkgvers{ver: p.Version.Ver, rel: p.Version.Rel, time: p.Time.Build}
 				}
 			}
 		}
