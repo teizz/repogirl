@@ -61,7 +61,7 @@ func mirrorRepository(uri string) (failed []string, err error) {
 		go func(u string, s int) {
 
 			pathcomponents := strings.Split(u[strings.Index(u, "//")+1:], "/")
-			pkgname := pathcomponents[len(pathcomponents)]
+			pkgname := pathcomponents[len(pathcomponents)-1]
 			pathcomponents = append([]string{"pub"}, pathcomponents[:len(pathcomponents)-1]...)
 			pkgpath := path.Join(pathcomponents...)
 
