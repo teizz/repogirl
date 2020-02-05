@@ -15,10 +15,9 @@ import (
 func mirrorRepository(uri string) (failed []string, err error) {
 	debug("repomirror", "status", "starting", "uri", uri)
 	t0 := time.Now()
-	pubpath := fmt.Sprintf("%v%s", os.PathSeparator, "pub")
 
-	if _, err = os.Stat(pubpath); err != nil {
-		err = fmt.Errorf("repomirror failed, '%s' directory not set up correctly (%s)", pubpath, err.Error())
+	if _, err = os.Stat("pub"); err != nil {
+		err = fmt.Errorf("repomirror failed, 'pub' directory not set up correctly (%s)", err.Error())
 		return
 	}
 
@@ -63,7 +62,7 @@ func mirrorRepository(uri string) (failed []string, err error) {
 
 			pathcomponents := strings.Split(u[strings.Index(u, "//")+1:], "/")
 			pkgname := pathcomponents[len(pathcomponents)]
-			pathcomponents = append([]string{pubpath}, pathcomponents[:len(pathcomponents)-1]...)
+			pathcomponents = append([]string{"pub"}, pathcomponents[:len(pathcomponents)-1]...)
 			pkgpath := path.Join(pathcomponents...)
 
 			if fd, err := os.Stat(path.Join(pkgpath, pkgname)); err == nil {
