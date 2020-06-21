@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-func mirrorRepository(uri string) (failed []string, err error) {
+func mirrorRepository(uri, repo string) (failed []string, err error) {
 	debug("repomirror", "status", "starting", "uri", uri)
 	t0 := time.Now()
 
@@ -58,13 +58,29 @@ func mirrorRepository(uri string) (failed []string, err error) {
 		// increase the number of running routine by one and kick off a
 		// new routine
 		atomic.AddInt64(&running, 1)
-		go func(u string, s int) {
-
+		go func(u, r, h string, s int) {
+			// arguments where: u = uri, r = localrepo, h = href, and s = package size
 			tn := time.Now()
-			pathcomponents := strings.Split(u[strings.Index(u, "//")+1:], "/")
-			pkgname := pathcomponents[len(pathcomponents)-1]
-			pathcomponents = append([]string{"pub"}, pathcomponents[:len(pathcomponents)-1]...)
-			pkgpath := path.Join(pathcomponents...)
+
+			// the href will have to be copied with the correct path, so split the
+			// package name and package path the package can be kept in the same
+			// relative path.
+			pkgcomponents := strings.Split(h, "/")
+			pkgname := pkgcomponents[len(pkgcomponents)-1]
+			pkgcomponents = pkgcomponents[:len(pkgcomponents)-1]
+
+			// calculate where to local package should go, which is the localrepo name
+			// combined with the package href converted to the correct path notation for
+			// the OS this instance is running on.
+			repocomponents := append([]string{"pub"}, strings.Split(r, "/")...)
+
+			// append the package components to the repocomponents so relative the the
+			// localrepo the href of the package would still be correct.
+			repocomponents = append(repocomponents, pkgcomponents...)
+
+			// finally create a string with the full path the individual package should
+			// be downloaded to.
+			pkgpath := path.Join(repocomponents...)
 
 			if fd, err := os.Stat(path.Join(pkgpath, pkgname)); err == nil {
 				if int64(s) == fd.Size() {
@@ -105,7 +121,7 @@ func mirrorRepository(uri string) (failed []string, err error) {
 
 				}
 			}
-		}(uri+"/"+p.Location.Href, p.Size.Package)
+		}(uri, repo, p.Location.Href, p.Size.Package)
 	}
 	// while there are still routines running, take a little nap
 	for atomic.LoadInt64(&running) > 0 {
@@ -116,7 +132,7 @@ func mirrorRepository(uri string) (failed []string, err error) {
 	// can stop as well
 	close(failchan)
 
-	debug("repomirror", "status", "done", "uri", uri, "total", c, "failed", f, "elapsed", time.Since(t0))
+	debug("repomirror", "status", "done", "uri", uri, "repo", repo, "total", c, "failed", f, "elapsed", time.Since(t0))
 
 	if c < 1 {
 		err = fmt.Errorf("no packages checked for %s", uri)
@@ -145,9 +161,14 @@ func mirrorRequest(w http.ResponseWriter, r *http.Request) {
 				uri += "/" + arch
 			}
 
+			localrepo := release + "/" + repo
+			if len(arch) > 0 {
+				localrepo += "/" + arch
+			}
+
 			var failed []string
 			var err error
-			if failed, err = mirrorRepository(uri); err != nil {
+			if failed, err = mirrorRepository(uri, localrepo); err != nil {
 				warn("unable to mirror repo", "mirror", mirror, "release", release, "repo", repo, "err", err.Error())
 				w.Write([]byte(uri + " NOT MIRRORED\n"))
 			} else if len(failed) > 0 {
