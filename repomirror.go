@@ -13,6 +13,11 @@ import (
 )
 
 func mirrorRepository(uri, repo string) (failed []string, err error) {
+	if !checkMirror(uri) {
+		err = fmt.Errorf("mirror for %s does not have valid metadata", repo)
+		return
+	}
+
 	debug("repomirror", "status", "starting", "uri", uri)
 	t0 := time.Now()
 
@@ -96,7 +101,7 @@ func mirrorRepository(uri, repo string) (failed []string, err error) {
 				failchan <- err
 			} else {
 				var resp *http.Response
-				if resp, err = client.Get(u); err != nil {
+				if resp, err = client.Get(u + "/" + h); err != nil {
 					err = fmt.Errorf("unable to download package %s (%s)", pkgname, err.Error())
 					failchan <- err
 				} else {
