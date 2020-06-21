@@ -126,6 +126,7 @@ func main() {
 
 	// requests for '/' should be parsed as a mirrorlist request
 	mux.HandleFunc("/", mirrorsRequest)
+	mux.HandleFunc("/mirrorlist", mirrorsRequest)
 
 	// requests for '/repodiff' should be parsed as a repodiff request
 	mux.HandleFunc("/repodiff", diffRequest)
@@ -142,11 +143,11 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	// requests for '/stats' should return relevant service stats
-	mux.HandleFunc("/health.html", func(w http.ResponseWriter, r *http.Request) {
+	// requests for '/health' should return a proper alive response
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("KEEPALIVE_OK\n"))
+		w.Write([]byte("ALIVE\n"))
 	})
 
 	// requests for '/stats' should return relevant service stats
