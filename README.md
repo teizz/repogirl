@@ -7,9 +7,17 @@ Mirrorlist that actively checks mirrors before serving them back. Written in Go.
     * Quick check of uri's in `REPO_MIRRORS` for an existing release of a requested repo before serving.
     * On-the-fly aliasing of releases to easy to remember names using `RELEASE_ALIASES`.
     * Disable checking of mirror TLS certificates by setting `INSECURE_SKIP_VERIFY=1`.
+    * HTTP client will attempt to use `HTTP_PROXY` for proxy if defined.
+    * Extra debugging information reported if `DEBUG` is set to anything other than '0', 'no', or 'false'.
+    * Parallel checking of repohealth and mirroring with repomirror configurable as `FETCH_ROUTINES=16` (default).
 * Opportunistic HTTPS support if a `key.pem` and `cert.pem` are found.
+* Opportunistic HTTPS-client support if a `client-key.pem` and `client-cert.pem` are found.
 * Opportunistic serving of files from a directory named `pub` if found.
-* On-demand repo diffs between 2 releases (possibly from different mirrors)
+
+* On-demand repo diffs between 2 releases (possibly from different mirrors).
+* On-demand repo health check of all mirrors (checks reported package size against metadata).
+* On-demand repo mirror which downloads all packages from all mirrors unless already present.
+
 * Built-in server stats served from `/stats` in JSON format.
 * Possible to build into a single binary (+CA-certs) container.
 
@@ -95,14 +103,14 @@ docker container run \
        http://mirrors.xtom.nl/centos, \
        http://vault.centos.org" \
   -p 8080:8080 \
-  -v $PWD/pub:/pub
+  -v $PWD/pub:/pub \
   repogirl
 ```
 
 
 # Use
 
-## Requesting a mirrorlist
+## Requesting a mirrorlist ('/' or '/mirrorlist')
 Once up and running, repogirl will return a list of the mirrors that are reachable and have the specified repo and release. Optionally, depending on the mirror, an 'arch' parameter can be specified:
 ```
 ~$ curl -L 'http://localhost:8080/?repo=os&release=7&arch=x86_64'
@@ -117,10 +125,10 @@ Of the 3 mirrors in this example, only one supports HTTPS. If all of them are sp
 https://mirrors.xtom.nl/centos/7/os/x86_64
 ```
 
-## Requesting a repodiff
+## Requesting a repodiff ('/repodiff')
 The output it trimmed for brevity. Requesting a repodiff between 2 existing releases of the same repo, repogirl will find which mirrors have the requested releases and do a repodiff between them. Caching the output should it be requested again.
 ```
-http://localhost:8080/repodiff?old=previous&new=stable&repo=os&arch=x86_64
+~> curl -L 'http://localhost:8080/repodiff?old=previous&new=stable&repo=os&arch=x86_64'
 added:
 	bcc-0.6.1-2.el7.x86_64
 	bcc-devel-0.6.1-2.el7.x86_64
@@ -141,6 +149,26 @@ removed:
 	...
 ```
 
+## Requesting a healthcheck ('/repohealth')
+This will attempt to fetch the metadata of all mirrors, and check the reported package size from the HTTP headers with the size reported in the metadata. This **will** fetch all headers, using multiple threads so mirrors might not like this behaviour.
+```
+~> curl -L 'http://localhost:8080/repohealth?repo=extras&release=7&arch=x86_64'
+http://centos.mirror.triple-it.nl/7/extras/x86_64 OK
+http://mirror.dataone.nl/centos/7/extras/x86_64 OK
+http://mirrors.xtom.nl/centos/7/extras/x86_64 OK
+http://vault.centos.org/7/extras/x86_64 NOT CHECKED
+```
+
+## Requesting a repomirror ('/repomirror')
+All packages for all available  mirrors will be checked for size and downloaded to the correct path if a `pub` directory is available. If a package is already present and has the correct size, it will be skipped.
+```
+~> curl 'http://localhost:8080/repomirror?repo=extras&release=7&arch=x86_64'
+http://centos.mirror.triple-it.nl/7/extras/x86_64 OK
+http://mirror.dataone.nl/centos/7/extras/x86_64 OK
+http://mirrors.xtom.nl/centos/7/extras/x86_64 OK
+http://vault.centos.org/7/extras/x86_64 NOT MIRRORED
+```
+After this, packages are found (and served right away) in `/pub/7/extras/x86_64` placed in `Packages` since that's where the metadata pointed to. Future plans include mirroring the metadata too so a full mirror is established out-of-the-box.
 
 # Gotcha's
 
